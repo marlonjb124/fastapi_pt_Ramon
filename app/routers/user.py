@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.user import UserSchema, UserSchemaCreate
 from app.db.services import SessionDep
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,8 @@ router = APIRouter(prefix="/user", tags=["user"])
 @router.get("/get-user", response_model=UserSchema)
 async def get_user(id: str, db:SessionDep):
     user = await UserModel.get(db, id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
@@ -24,7 +26,8 @@ async def get_users(db: SessionDep):
 @router.post("/create-user", response_model=UserSchema)
 async def create_user(user: UserSchemaCreate, db:SessionDep):
     password_hash = get_password_hash(user.password)
-    print("ASDSADSADSADasadasdasdasdsadsadsa")
-    print(password_hash)
+    verify_user = await UserModel.get_by_email(db, user.email)
+    if verify_user:
+        raise HTTPException(status_code=400, detail="User already exists")
     user_model = await UserModel.create(db, password_hash=password_hash, **user.model_dump(exclude={"password"}))
     return user_model

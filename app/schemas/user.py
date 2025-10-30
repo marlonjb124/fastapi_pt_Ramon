@@ -10,7 +10,7 @@ class UserSchemaCreate(UserSchemaBase):
 
 
 class UserSchema(UserSchemaBase):
-    id: str
+    id: int
     class Config:
         from_attributes = True
     
