@@ -1,12 +1,14 @@
-from uuid import uuid4
-
 from sqlalchemy import Column, String, Integer, select, Text, ForeignKey
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.services import Base
+from sqlalchemy import Enum
 from sqlalchemy.orm import relationship
 from app.models.crud import CRUDBase
-from app.models.timestamp import TimestampMixin
+from app.models.timestampmixin import TimestampMixin
+from app.db.services import Base
+from app.schemas.user import Role
+
+
 
 class User(Base, CRUDBase, TimestampMixin):
     __tablename__ = "users"
@@ -14,8 +16,9 @@ class User(Base, CRUDBase, TimestampMixin):
     email = Column(String, unique=True, nullable=False)
     full_name = Column(String, nullable=False)
     password_hash = Column(String, nullable=False)
+    role = Column(Enum(Role), server_default=Role.FREE_USER.value) 
 
-
+    posts = relationship("Post", back_populates="user")
     profile = relationship("UserProfile", back_populates="user", uselist=False)
 
     @classmethod

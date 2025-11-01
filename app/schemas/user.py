@@ -1,16 +1,31 @@
-from pydantic import BaseModel
-
-class UserSchemaBase(BaseModel):
-    email: str | None = None
-    full_name: str | None = None
-
-class UserSchemaCreate(UserSchemaBase):
-    password: str
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+from enum import Enum
+from app.schemas.visibilitymixin import VisibilitySchema
+from app.schemas.timestampmixin import TimestampMixin
+class Role(str, Enum):
+    FREE_USER = "FREE_USER"
+    PAID_USER = "PAID_USER"
+    ADMIN = "ADMIN"
+class UserBase(BaseModel):
+    email: str
+    full_name:str
+    role: Optional[Role] = Role.FREE_USER  
+class UserCreate(BaseModel):
+    email:str
+    password: str 
+    full_name:str
     
 
-
-class UserSchema(UserSchemaBase):
-    id: int
+class UserPublic(UserBase,TimestampMixin):
+    id:int
     class Config:
         from_attributes = True
-    
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
+    role: Optional[Role] = None   

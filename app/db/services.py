@@ -1,8 +1,8 @@
 import contextlib
-from typing import AsyncIterator, Annotated
+from typing import AsyncIterator, Annotated, Optional
 from collections.abc import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import (
     AsyncConnection, 
     AsyncEngine, 
@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine
 )
 from sqlalchemy.orm import DeclarativeBase
+
+from app.schemas.user import Role
 
 class Base(DeclarativeBase):
     """Base class for all database models"""
@@ -87,10 +89,14 @@ sessionmanager = DatabaseSessionManager()
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependency function that yields db sessions
+    Dependency function that yields db sessions.
+    Use this for basic database access without user context.
     """
     async with sessionmanager.session() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.close()
+        
 
-# Type alias for dependency injection
-SessionDep = Annotated[AsyncSession, Depends(get_db)]
+
