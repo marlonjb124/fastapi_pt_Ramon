@@ -42,7 +42,7 @@ async def create_post(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un post con este título."
+            detail="A post with this title already exists"
         )
 
     db_post = await Post.create(db, **post_in.model_dump(), owner_id=current_user.id)
@@ -57,24 +57,17 @@ async def create_post(
 @router.get(
     "/{post_id}",
     response_model=Union[PostPublic, PostPublicExtended],
-    summary="Obtener un post por ID",
-    description=(
-        "Devuelve la información del post según su visibilidad y el rol del usuario. "
-        "Si el recurso es privado o de pago, se aplican restricciones de acceso."
-    ),
+    summary="Get post by ID",
 )
 async def read_post(
     post_id: int,
     db: sessionDep,
     current_user: currentUserDep,
-    load_type: Literal["lazy", "selectin", "joined"] = Query(
-        default="selectin",
-        description="Tipo de carga de relaciones (lazy, selectin, joined)."
-    ),
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
 ):
     db_post = await Post.get_by_id(db, post_id, load_type=load_type)
     if not db_post:
-        raise HTTPException(status_code=404, detail="Post no encontrado.")
+        raise HTTPException(status_code=404, detail="Post not found")
 
     if not db_post.has_permission(
         current_user_role=current_user.role,
@@ -82,7 +75,7 @@ async def read_post(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para acceder a este recurso."
+            detail="Insufficient permissions to access this resource"
         )
 
     if load_type == "lazy":
@@ -128,9 +121,6 @@ async def search_posts(
     return [PostPublicExtended.model_validate(p, from_attributes=True) for p in posts]
 
 
-# ======================================================
-# 🔹 Listar posts visibles
-# ======================================================
 @router.get(
     "/",
     response_model=List[Union[PostPublic, PostPublicExtended]],
@@ -157,11 +147,9 @@ async def list_posts(
         current_user_role=current_user.role,
         user_id=current_user.id
     )
-    print("filtros aplciados")
     query = query.offset(skip).limit(limit)
 
     posts = await Post.execute_query(db, query, load_type=load_type)
-    print("postssssssss",posts)
     if load_type == "lazy":
         return [PostPublic.model_validate(p, from_attributes=True) for p in posts]
     return [PostPublicExtended.model_validate(p, from_attributes=True) for p in posts]
@@ -174,7 +162,7 @@ async def list_posts(
     summary="Actualizar un post existente",
     description=(
         "Permite actualizar un post existente. "
-        "Solo el propietario o un administrador pueden modificarlo."
+        "Solo el propietario puede modificarlo (incluyendo campos de visibilidad)."
     ),
 )
 async def update_post(
@@ -187,48 +175,89 @@ async def update_post(
         description="Tipo de carga de relaciones."
     ),
 ):
-    db_post = await Post.get_by_id(db, post_id)
-    if not db_post:
-        raise HTTPException(status_code=404, detail="Post no encontrado.")
-
-    if current_user.role != Role.ADMIN and db_post.owner_id != current_user.id:
+    try:
+        updated_post = await Post.update_with_ownership(
+            db=db,
+            resource_id=post_id,
+            current_user_id=current_user.id,
+            update_data=post_in.model_dump(exclude_unset=True)
+        )
+        
+        if not updated_post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        
+        db_post_loaded = await Post.get_by_id(db, updated_post.id, load_type=load_type)
+        
+        if load_type == "lazy":
+            return PostPublic.model_validate(db_post_loaded, from_attributes=True)
+        return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
+        
+    except PermissionError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para modificar este post."
+            detail=str(e)
         )
-
-    updated_post = await Post.update(db, id=post_id, **post_in.model_dump(exclude_unset=True))
-    db_post_loaded = await Post.get_by_id(db, updated_post.id, load_type=load_type)
-
-    if load_type == "lazy":
-        return PostPublic.model_validate(db_post_loaded, from_attributes=True)
-    return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
 
 
 
 @router.delete(
     "/{post_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar un post",
-    description=(
-        "Elimina un post por ID. "
-        "Solo el propietario o un administrador pueden eliminarlo."
-    ),
+    summary="Soft delete post",
 )
 async def delete_post(
     post_id: int,
     db: sessionDep,
     current_user: currentUserDep,
 ):
-    db_post = await Post.get_by_id(db, post_id)
-    if not db_post:
-        raise HTTPException(status_code=404, detail="Post no encontrado.")
-
-    if current_user.role != Role.ADMIN and db_post.owner_id != current_user.id:
+    try:
+        deleted_post = await Post.soft_delete_with_ownership(
+            db=db,
+            resource_id=post_id,
+            current_user_id=current_user.id
+        )
+        
+        if not deleted_post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        
+        return {"ok": True, "message": "Post deleted successfully"}
+        
+    except PermissionError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para eliminar este post."
+            detail=str(e)
         )
 
-    await Post.delete(db, id=post_id)
-    return {"ok": True}
+
+@router.post(
+    "/{post_id}/restore",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Restore deleted post",
+)
+async def restore_post(
+    post_id: int,
+    db: sessionDep,
+    current_user: currentUserDep,
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    try:
+        restored_post = await Post.restore_with_ownership(
+            db=db,
+            resource_id=post_id,
+            current_user_id=current_user.id
+        )
+        
+        if not restored_post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        
+        db_post_loaded = await Post.get_by_id(db, restored_post.id, load_type=load_type)
+        
+        if load_type == "lazy":
+            return PostPublic.model_validate(db_post_loaded, from_attributes=True)
+        return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
+        
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )

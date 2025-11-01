@@ -37,13 +37,13 @@ class PostUpdate(BaseModel, TimestampMixin):
     
 class PostPublic(PostBase, TimestampMixin):
     id: int
-    user_id: Optional[int] = None
+    owner_id: Optional[int] = None
 
     class Config:
         from_attributes = True
 class PostPublicExtended(PostBase, TimestampMixin):
     id: int
-    user_id: Optional[int] = None
+    owner_id: Optional[int] = None
     user: Optional[UserPublic] = None
     tags: List[TagPublic] = []
 

@@ -5,6 +5,10 @@ from app.db.services import sessionmanager
 from app.routers.user import router as router_users
 from app.routers.auth import router as router_auth
 from app.routers.posts import router as router_posts
+from app.routers.tags import router as router_tags
+from app.routers.admin import router as router_admin
+from app.routers.premium import router as router_premium
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     sessionmanager.init(settings.DATABASE_URL)
@@ -23,6 +27,9 @@ myapp = FastAPI(
 myapp.include_router(router_users, prefix=settings.API_V1_STR)
 myapp.include_router(router_auth, prefix=settings.API_V1_STR)
 myapp.include_router(router_posts, prefix=settings.API_V1_STR)
+myapp.include_router(router_tags, prefix=settings.API_V1_STR)
+myapp.include_router(router_admin, prefix=settings.API_V1_STR)
+myapp.include_router(router_premium, prefix=settings.API_V1_STR)
     
 
 @myapp.get("/health")

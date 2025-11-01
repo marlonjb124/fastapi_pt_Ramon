@@ -22,10 +22,8 @@ class Post(Base, CRUDBase, TimestampMixin, VisibilityMixin):
     tags= relationship("Tag", secondary="posts_tags", back_populates="posts", uselist=True)
     @classmethod
     async def search_by_title(cls, db: AsyncSession, title: str):
-
         query = select(cls).where(cls.title.ilike(f"%{title}%"))
         result = await db.execute(query)
-        print(result.scalars().all())
         return result.scalars().all()
     @classmethod
     async def get_by_title(cls, db: AsyncSession, title: str):
@@ -34,13 +32,10 @@ class Post(Base, CRUDBase, TimestampMixin, VisibilityMixin):
         return result.scalars().first()
     @classmethod
     async def execute_query(cls, db: AsyncSession, query, load_type: str = "selectin"):
-        print("executing_query")
-
         if load_type == "selectin":
             query = query.options(selectinload(cls.user), selectinload(cls.tags))
         elif load_type == "joined":
             query = query.options(joinedload(cls.user), joinedload(cls.tags))
 
         result = await db.execute(query)
-    
         return result.scalars().all()

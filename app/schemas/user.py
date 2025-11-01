@@ -28,4 +28,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
-    role: Optional[Role] = None   
+    role: Optional[Role] = None
+
+class UserRoleUpdate(BaseModel):
+    role: Role   

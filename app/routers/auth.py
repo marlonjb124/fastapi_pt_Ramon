@@ -10,7 +10,8 @@ from app.core.config import settings
 from app.core.deps import sessionDep, currentUserDep, get_current_active_user
 from app.models.user import User as UserModel
 from app.schemas.user import Role, UserCreate, UserPublic, Token, TokenData
-from app.core.security import verify_password
+from app.core.security import verify_password,get_password_hash
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,7 +35,15 @@ def create_access_token(
 
 # Authentication dependencies
 
-
+@router.post("/sign-up", response_model=UserPublic)
+async def create_user(user: UserCreate, db:sessionDep):
+    password_hash = get_password_hash(user.password)
+    verify_user = await UserModel.get_by_email(db, user.email)
+ 
+    if verify_user:
+        raise HTTPException(status_code=400, detail="User already exists")
+    user_model = await UserModel.create(db, password_hash=password_hash, **user.model_dump(exclude={"password"}))
+    return user_model
 
 # API endpoints
 

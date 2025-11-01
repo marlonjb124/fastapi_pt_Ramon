@@ -23,12 +23,12 @@ async def get_users(db: sessionDep):
     return users
 
 
-@router.post("/create-user", response_model=UserPublic)
-async def create_user(user: UserCreate, db:sessionDep):
-    password_hash = get_password_hash(user.password)
-    verify_user = await UserModel.get_by_email(db, user.email)
+# @router.post("/create-user", response_model=UserPublic)
+# async def create_user(user: UserCreate, db:sessionDep):
+#     password_hash = get_password_hash(user.password)
+#     verify_user = await UserModel.get_by_email(db, user.email)
  
-    if verify_user:
-        raise HTTPException(status_code=400, detail="User already exists")
-    user_model = await UserModel.create(db, password_hash=password_hash, **user.model_dump(exclude={"password"}))
-    return user_model
+#     if verify_user:
+#         raise HTTPException(status_code=400, detail="User already exists")
+#     user_model = await UserModel.create(db, password_hash=password_hash, **user.model_dump(exclude={"password"}))
+#     return user_model

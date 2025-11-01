@@ -66,32 +66,23 @@ async def get_current_active_user(
         )
     return current_user
 def require_role(required_roles: List[Role]):
-    """
-    Dependency factory to check if the current user has any of the required roles.
-    
-    Usage:
-        @router.get("/admin")
-        async def admin_route(
-            current_user: UserModel = Depends(require_role([Role.ADMIN]))
-        ):
-            ...
-    """
     def role_checker(current_user: UserModel = Depends(get_current_user)) -> UserModel:
         if current_user.role not in required_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not enough permissions to access this resource",
+                detail="Insufficient permissions to access this resource",
             )
         return current_user
-    
     return role_checker
 
-# Common role-based dependencies
-async def get_role(current_user: UserModel = Depends(get_current_user)) -> Role:
-    """
-    Dependency to get the current user's role.
-    """
-    return current_user.role
+
+async def get_current_user_with_role(
+    current_user: UserModel = Depends(get_current_user)
+) -> tuple[UserModel, Role]:
+    return current_user, current_user.role
+
 
 currentUserDep = Annotated[UserModel, Depends(get_current_user)]
 sessionDep = Annotated[AsyncSession, Depends(get_db)]
+adminDep = Annotated[UserModel, Depends(require_role([Role.ADMIN]))]
+premiumDep = Annotated[UserModel, Depends(require_role([Role.PAID_USER, Role.ADMIN]))]

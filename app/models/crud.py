@@ -7,13 +7,9 @@ from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 T = TypeVar("T")
 
 class CRUDBase:
-    """Clase base genérica para operaciones CRUD asíncronas."""
 
     @classmethod
     async def create(cls: Type[T], db: AsyncSession, **kwargs) -> T:
-        """
-        Crea una nueva instancia del modelo y la guarda en la base de datos.
-        """
         try:
             instance = cls(**kwargs)
             db.add(instance)
@@ -22,7 +18,7 @@ class CRUDBase:
             return instance
         except SQLAlchemyError as e:
             await db.rollback()
-            raise RuntimeError(f"Error al crear {cls.__name__}: {str(e)}")
+            raise RuntimeError(f"Error creating {cls.__name__}: {str(e)}")
 
     @classmethod
     async def get_by_id(
@@ -31,12 +27,6 @@ class CRUDBase:
         id: Any,
         load_type: str = "lazy"
     ) -> Optional[T]:
-        """
-        Obtiene un registro por ID con control del tipo de carga:
-        - `lazy` (por defecto): solo la entidad.
-        - `selectin`: relaciones cargadas mediante consultas separadas (eficiente para colecciones).
-        - `joined`: carga todas las relaciones mediante JOINs.
-        """
         options = cls._get_load_options(load_type)
         query = select(cls).options(*options).where(cls.id == id)
 
@@ -54,20 +44,100 @@ class CRUDBase:
         skip: int = 0,
         limit: int = 100
     ) -> List[T]:
-        """
-        Retorna todos los registros del modelo con soporte para distintos tipos de carga.
-        """
         options = cls._get_load_options(load_type)
         query = select(cls).options(*options).offset(skip).limit(limit)
 
         result = await db.execute(query)
         return result.scalars().all()
 
+    @classmethod
+    async def update(
+        cls: Type[T],
+        db: AsyncSession,
+        id: Any,
+        **kwargs
+    ) -> Optional[T]:
+  
+        try:
+            instance = await cls.get_by_id(db, id)
+            if not instance:
+                return None
+            
+            for key, value in kwargs.items():
+                if hasattr(instance, key):
+                    setattr(instance, key, value)
+            
+            await db.commit()
+            await db.refresh(instance)
+            return instance
+        except SQLAlchemyError as e:
+            await db.rollback()
+            raise RuntimeError(f"Error updating {cls.__name__}: {str(e)}")
+
+    @classmethod
+    async def hard_delete(
+        cls: Type[T],
+        db: AsyncSession,
+        id: Any
+    ) -> bool:
+        try:
+            instance = await cls.get_by_id(db, id)
+            if not instance:
+                return False
+            
+            await db.delete(instance)
+            await db.commit()
+            return True
+        except SQLAlchemyError as e:
+            await db.rollback()
+            raise RuntimeError(f"Error deleting {cls.__name__}: {str(e)}")
+
+    @classmethod
+    async def delete(
+        cls: Type[T],
+        db: AsyncSession,
+        id: Any
+    ) -> Optional[T]:
+        try:
+            instance = await cls.get_by_id(db, id)
+            if not instance:
+                return None
+            
+            if not hasattr(instance, 'is_deleted'):
+                raise AttributeError(f"{cls.__name__} does not have 'is_deleted' field")
+            
+            instance.is_deleted = True
+            await db.commit()
+            await db.refresh(instance)
+            return instance
+        except SQLAlchemyError as e:
+            await db.rollback()
+            raise RuntimeError(f"Error soft deleting {cls.__name__}: {str(e)}")
+
+    @classmethod
+    async def restore(
+        cls: Type[T],
+        db: AsyncSession,
+        id: Any
+    ) -> Optional[T]:
+        try:
+            instance = await cls.get_by_id(db, id)
+            if not instance:
+                return None
+            
+            if not hasattr(instance, 'is_deleted'):
+                raise AttributeError(f"{cls.__name__} does not have 'is_deleted' field")
+            
+            instance.is_deleted = False
+            await db.commit()
+            await db.refresh(instance)
+            return instance
+        except SQLAlchemyError as e:
+            await db.rollback()
+            raise RuntimeError(f"Error restoring {cls.__name__}: {str(e)}")
+
     @staticmethod
     def _get_load_options(load_type: str):
-        """
-        Devuelve la configuración de carga según el tipo especificado.
-        """
         if load_type == "selectin":
             return [selectinload("*")]
         elif load_type == "joined":
@@ -76,6 +146,6 @@ class CRUDBase:
             return [lazyload("*")]
         else:
             raise ValueError(
-                f"Tipo de carga '{load_type}' no reconocido. "
-                "Usa 'lazy', 'selectin' o 'joined'."
+                f"Load type '{load_type}' not recognized. "
+                "Use 'lazy', 'selectin' or 'joined'."
             )
