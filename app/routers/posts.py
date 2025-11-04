@@ -8,10 +8,11 @@ from app.schemas.post import (
     PostCreate,
     PostUpdate,
     PostPublic,
-    PostPublicExtended
+    PostPublicExtended,
+    PostTagsUpdate
 )
 from app.schemas.user import Role
-from app.core.deps import sessionDep, currentUserDep
+from app.core.deps import sessionDep, currentUserDep, adminDep
 from app.models.visibilitymixin import VisibilityMixin
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -33,10 +34,7 @@ async def create_post(
     post_in: PostCreate,
     db: sessionDep,
     current_user: currentUserDep,
-    load_type: Literal["lazy", "selectin", "joined"] = Query(
-        default="selectin",
-        description="Define cómo se cargan las relaciones (lazy, selectin, joined)."
-    )
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin")
 ):
     existing = await Post.get_by_title(db, post_in.title)
     if existing:
@@ -45,7 +43,12 @@ async def create_post(
             detail="A post with this title already exists"
         )
 
-    db_post = await Post.create(db, **post_in.model_dump(), owner_id=current_user.id)
+    post_data = post_in.model_dump(exclude={"tag_ids"})
+    db_post = await Post.create(db, **post_data, owner_id=current_user.id)
+    
+    if post_in.tag_ids:
+        await Post.set_tags(db, db_post.id, post_in.tag_ids)
+    
     db_post_loaded = await Post.get_by_id(db, db_post.id, load_type=load_type)
 
     if load_type == "lazy":
@@ -55,9 +58,31 @@ async def create_post(
 
 
 @router.get(
+    "/deleted",
+    response_model=List[Union[PostPublic, PostPublicExtended]],
+    summary="Listar posts eliminados (solo admin)",
+    description="Devuelve una lista de los posts que han sido eliminados (soft delete). Solo accesible para administradores."
+)
+async def list_deleted_posts(
+    db: sessionDep,
+    admin_user: adminDep,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, le=100),
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    query = select(Post).where(Post.is_deleted == True)
+    query = query.offset(skip).limit(limit)
+    
+    posts = await Post.execute_query(db, query, load_type=load_type)
+    
+    if load_type == "lazy":
+        return [PostPublic.model_validate(p, from_attributes=True) for p in posts]
+    return [PostPublicExtended.model_validate(p, from_attributes=True) for p in posts]
+@router.get(
     "/{post_id}",
     response_model=Union[PostPublic, PostPublicExtended],
-    summary="Get post by ID",
+    summary="Obtener post por ID",
+    description="Devuelve la información de un post específico por su ID, respetando las reglas de visibilidad y permisos."
 )
 async def read_post(
     post_id: int,
@@ -160,10 +185,7 @@ async def list_posts(
     "/{post_id}",
     response_model=Union[PostPublic, PostPublicExtended],
     summary="Actualizar un post existente",
-    description=(
-        "Permite actualizar un post existente. "
-        "Solo el propietario puede modificarlo (incluyendo campos de visibilidad)."
-    ),
+    description="Permite actualizar un post existente. Solo el propietario puede modificarlo, incluyendo los campos de visibilidad."
 )
 async def update_post(
     post_id: int,
@@ -203,7 +225,8 @@ async def update_post(
 @router.delete(
     "/{post_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Soft delete post",
+    summary="Eliminar (soft delete) un post",
+    description="Marca un post como eliminado (soft delete). Solo el propietario puede eliminarlo."
 )
 async def delete_post(
     post_id: int,
@@ -232,7 +255,8 @@ async def delete_post(
 @router.post(
     "/{post_id}/restore",
     response_model=Union[PostPublic, PostPublicExtended],
-    summary="Restore deleted post",
+    summary="Restaurar un post eliminado",
+    description="Restaura un post que fue marcado como eliminado. Solo el propietario puede restaurarlo."
 )
 async def restore_post(
     post_id: int,
@@ -261,3 +285,158 @@ async def restore_post(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e)
         )
+
+
+@router.put(
+    "/{post_id}/tags",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Actualizar los tags de un post",
+    description="Permite al propietario de un post actualizar la lista de tags asociados."
+)
+async def update_post_tags(
+    post_id: int,
+    tags_update: PostTagsUpdate,
+    db: sessionDep,
+    current_user: currentUserDep,
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    post = await Post.get_by_id(db, post_id, load_type="lazy")
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if post.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can modify post tags"
+        )
+    
+    updated_post = await Post.set_tags(db, post_id, tags_update.tag_ids)
+    db_post_loaded = await Post.get_by_id(db, updated_post.id, load_type=load_type)
+    
+    if load_type == "lazy":
+        return PostPublic.model_validate(db_post_loaded, from_attributes=True)
+    return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
+
+
+@router.post(
+    "/{post_id}/tags/{tag_id}",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Agregar un tag a un post",
+    description="Permite al propietario de un post agregar un tag específico."
+)
+async def add_tag_to_post(
+    post_id: int,
+    tag_id: int,
+    db: sessionDep,
+    current_user: currentUserDep,
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    post = await Post.get_by_id(db, post_id, load_type="lazy")
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if post.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can add tags to post"
+        )
+    
+    updated_post = await Post.add_tags(db, post_id, [tag_id])
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Post or tag not found")
+    
+    db_post_loaded = await Post.get_by_id(db, updated_post.id, load_type=load_type)
+    
+    if load_type == "lazy":
+        return PostPublic.model_validate(db_post_loaded, from_attributes=True)
+    return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
+
+
+@router.delete(
+    "/{post_id}/tags/{tag_id}",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Eliminar un tag de un post",
+    description="Permite al propietario de un post eliminar un tag específico."
+)
+@router.delete(
+    "/{post_id}/tags/{tag_id}",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Remove a tag from a post"
+)
+async def remove_tag_from_post_single(
+    post_id: int,
+    tag_id: int,
+    db: sessionDep,
+    current_user: currentUserDep,
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    post = await Post.get_by_id(db, post_id, load_type="lazy")
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the owner can remove tags from post")
+
+    updated_post = await Post.remove_tags(db, post_id, [tag_id])
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Post or tag not found")
+
+    db_post_loaded = await Post.get_by_id(db, updated_post.id, load_type=load_type)
+    if load_type == "lazy":
+        return PostPublic.model_validate(db_post_loaded, from_attributes=True)
+    return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
+
+
+@router.delete(
+    "/{post_id}/tags",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Eliminar varios tags de un post",
+    description="Permite al propietario de un post eliminar varios tags a la vez."
+)
+async def remove_tags_from_post(
+    post_id: int,
+    tags_update: PostTagsUpdate,
+    db: sessionDep,
+    current_user: currentUserDep,
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    post = await Post.get_by_id(db, post_id, load_type="lazy")
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the owner can remove tags from post")
+
+    updated_post = await Post.remove_tags(db, post_id, tags_update.tag_ids)
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    db_post_loaded = await Post.get_by_id(db, updated_post.id, load_type=load_type)
+    if load_type == "lazy":
+        return PostPublic.model_validate(db_post_loaded, from_attributes=True)
+    return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
+
+
+@router.get(
+    "/deleted",
+    response_model=List[Union[PostPublic, PostPublicExtended]],
+    summary="List deleted posts (Admin only)"
+)
+async def list_deleted_posts(
+    db: sessionDep,
+    admin_user: adminDep,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, le=100),
+    load_type: Literal["lazy", "selectin", "joined"] = Query(default="selectin"),
+):
+    query = select(Post).where(Post.is_deleted == True)
+    query = query.offset(skip).limit(limit)
+    
+    posts = await Post.execute_query(db, query, load_type=load_type)
+    
+    if load_type == "lazy":
+        return [PostPublic.model_validate(p, from_attributes=True) for p in posts]
+    return [PostPublicExtended.model_validate(p, from_attributes=True) for p in posts]
+
+
+

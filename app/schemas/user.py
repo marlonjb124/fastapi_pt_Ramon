@@ -8,7 +8,7 @@ class Role(str, Enum):
     PAID_USER = "PAID_USER"
     ADMIN = "ADMIN"
 class UserBase(BaseModel):
-    email: str
+    email: EmailStr
     full_name:str
     role: Optional[Role] = Role.FREE_USER  
 class UserCreate(BaseModel):

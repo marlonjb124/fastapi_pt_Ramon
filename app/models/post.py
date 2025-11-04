@@ -39,3 +39,63 @@ class Post(Base, CRUDBase, TimestampMixin, VisibilityMixin):
 
         result = await db.execute(query)
         return result.scalars().all()
+    
+    @classmethod
+    async def add_tags(cls, db: AsyncSession, post_id: int, tag_ids: list[int]):
+        from app.models.tag import Tag
+        
+        post = await cls.get_by_id(db, post_id, load_type="selectin")
+        if not post:
+            return None
+        
+        if not tag_ids:
+            return post
+        
+        query = select(Tag).where(Tag.id.in_(tag_ids))
+        result = await db.execute(query)
+        tags = result.scalars().all()
+        
+        existing_tag_ids = {tag.id for tag in post.tags}
+        new_tags = [tag for tag in tags if tag.id not in existing_tag_ids]
+        
+        if new_tags:
+            post.tags.extend(new_tags)
+            await db.commit()
+            await db.refresh(post)
+        
+        return post
+
+    @classmethod
+    async def remove_tags(cls, db: AsyncSession, post_id: int, tag_ids: list[int]):
+        post = await cls.get_by_id(db, post_id, load_type="selectin")
+        if not post:
+            return None
+        
+        if not tag_ids:
+            return post
+        
+        tag_ids_set = set(tag_ids)
+        post.tags = [tag for tag in post.tags if tag.id not in tag_ids_set]
+        
+        await db.commit()
+        await db.refresh(post)
+        return post
+
+    @classmethod
+    async def set_tags(cls, db: AsyncSession, post_id: int, tag_ids: list[int]):
+        from app.models.tag import Tag
+        
+        post = await cls.get_by_id(db, post_id, load_type="selectin")
+        if not post:
+            return None
+        
+        if not tag_ids:
+            post.tags = []
+        else:
+            query = select(Tag).where(Tag.id.in_(tag_ids))
+            result = await db.execute(query)
+            post.tags = result.scalars().all()
+        
+        await db.commit()
+        await db.refresh(post)
+        return post

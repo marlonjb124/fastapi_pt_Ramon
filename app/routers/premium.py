@@ -9,7 +9,13 @@ from app.core.deps import sessionDep, currentUserDep, premiumDep
 router = APIRouter(prefix="/premium", tags=["premium"])
 
 
-@router.get("/posts", response_model=List[Union[PostPublic, PostPublicExtended]])
+
+@router.get(
+    "/posts",
+    response_model=List[Union[PostPublic, PostPublicExtended]],
+    summary="Listar posts de pago",
+    description="Devuelve una lista de todos los posts marcados como de pago. Solo accesible para usuarios premium."
+)
 async def list_paid_posts(
     db: sessionDep,
     current_user: premiumDep,
@@ -27,7 +33,13 @@ async def list_paid_posts(
     return [PostPublicExtended.model_validate(p, from_attributes=True) for p in posts]
 
 
-@router.get("/posts/{post_id}", response_model=Union[PostPublic, PostPublicExtended])
+
+@router.get(
+    "/posts/{post_id}",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Obtener post de pago por ID",
+    description="Devuelve la información de un post de pago específico por su ID. Solo accesible para usuarios premium."
+)
 async def get_paid_post(
     post_id: int,
     db: sessionDep,
@@ -39,13 +51,13 @@ async def get_paid_post(
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
+            detail="Post no encontrado"
         )
     
     if not post.is_paid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This post is not a paid post"
+            detail="Este post no es de pago"
         )
     
     if load_type == "lazy":
@@ -53,7 +65,13 @@ async def get_paid_post(
     return PostPublicExtended.model_validate(post, from_attributes=True)
 
 
-@router.put("/posts/{post_id}/toggle-paid", response_model=Union[PostPublic, PostPublicExtended])
+
+@router.put(
+    "/posts/{post_id}/toggle-paid",
+    response_model=Union[PostPublic, PostPublicExtended],
+    summary="Cambiar estado de pago de un post",
+    description="Permite al propietario de un post cambiar si es de pago o no. Solo el dueño puede modificar este estado."
+)
 async def toggle_post_paid_status(
     post_id: int,
     db: sessionDep,
@@ -66,13 +84,13 @@ async def toggle_post_paid_status(
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found"
+            detail="Post no encontrado"
         )
     
     if post.owner_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the owner can change payment status"
+            detail="Solo el dueño puede cambiar el estado de pago"
         )
     
     updated_post = await Post.update(db, post_id, is_paid=is_paid)
@@ -83,7 +101,13 @@ async def toggle_post_paid_status(
     return PostPublicExtended.model_validate(db_post_loaded, from_attributes=True)
 
 
-@router.get("/my-posts", response_model=List[Union[PostPublic, PostPublicExtended]])
+
+@router.get(
+    "/my-posts",
+    response_model=List[Union[PostPublic, PostPublicExtended]],
+    summary="Listar mis posts de pago",
+    description="Devuelve una lista de los posts de pago creados por el usuario autenticado."
+)
 async def my_paid_posts(
     db: sessionDep,
     current_user: currentUserDep,

@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from app.models.tag import Tag
 from app.schemas.tag import TagCreate, TagUpdate, TagPublic
 from app.schemas.user import Role
-from app.core.deps import sessionDep, currentUserDep
+from app.core.deps import sessionDep, currentUserDep, adminDep
 from app.models.visibilitymixin import VisibilityMixin
 
 router = APIRouter(prefix="/tags", tags=["tags"])
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
     response_model=TagPublic,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un nuevo tag",
-    description="Crea un nuevo tag asociado al usuario autenticado.",
+    description="Crea un nuevo tag asociado al usuario autenticado. Si el título ya existe, devuelve un error."
 )
 async def create_tag(
     tag_in: TagCreate,
@@ -28,7 +28,7 @@ async def create_tag(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un tag con este título."
+            detail="A tag with this title already exists"
         )
 
     db_tag = await Tag.create(db, **tag_in.model_dump(), owner_id=current_user.id)
@@ -39,7 +39,7 @@ async def create_tag(
     "/{tag_id}",
     response_model=TagPublic,
     summary="Obtener un tag por ID",
-    description="Devuelve la información del tag según su visibilidad y el rol del usuario.",
+    description="Devuelve la información de un tag específico por su ID, respetando las reglas de visibilidad y permisos."
 )
 async def read_tag(
     tag_id: int,
@@ -66,7 +66,7 @@ async def read_tag(
     "/search/",
     response_model=List[TagPublic],
     summary="Buscar tags por título",
-    description="Permite buscar tags por coincidencia parcial o total en el título.",
+    description="Permite buscar tags por coincidencia parcial o total en el título. Aplica automáticamente las restricciones de visibilidad según el rol del usuario."
 )
 async def search_tags(
     db: sessionDep,
@@ -94,7 +94,7 @@ async def search_tags(
     "/",
     response_model=List[TagPublic],
     summary="Listar tags visibles",
-    description="Lista los tags visibles según el rol del usuario y las reglas de visibilidad.",
+    description="Lista los tags visibles según el rol del usuario y las reglas de visibilidad. Soporta paginación."
 )
 async def list_tags(
     db: sessionDep,
@@ -121,10 +121,7 @@ async def list_tags(
     "/{tag_id}",
     response_model=TagPublic,
     summary="Actualizar un tag existente",
-    description=(
-        "Permite actualizar un tag existente. "
-        "Solo el propietario puede modificarlo (incluyendo campos de visibilidad)."
-    ),
+    description="Permite actualizar un tag existente. Solo el propietario puede modificarlo, incluyendo los campos de visibilidad."
 )
 async def update_tag(
     tag_id: int,
@@ -156,8 +153,8 @@ async def update_tag(
 @router.delete(
     "/{tag_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Realizar soft delete de un tag",
-    description="Marca un tag como eliminado. Solo el propietario puede eliminarlo.",
+    summary="Eliminar (soft delete) un tag",
+    description="Marca un tag como eliminado (soft delete). Solo el propietario puede eliminarlo."
 )
 async def delete_tag(
     tag_id: int,
@@ -188,7 +185,7 @@ async def delete_tag(
     "/{tag_id}/restore",
     response_model=TagPublic,
     summary="Restaurar un tag eliminado",
-    description="Restaura un tag que fue marcado como eliminado. Solo el propietario puede restaurarlo.",
+    description="Restaura un tag que fue marcado como eliminado. Solo el propietario puede restaurarlo."
 )
 async def restore_tag(
     tag_id: int,
@@ -204,7 +201,7 @@ async def restore_tag(
         )
         
         if not restored_tag:
-            raise HTTPException(status_code=404, detail="Tag no encontrado.")
+            raise HTTPException(status_code=404, detail="Tag not found")
         
         return TagPublic.model_validate(restored_tag, from_attributes=True)
         
@@ -213,3 +210,24 @@ async def restore_tag(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e)
         )
+
+
+@router.get(
+    "/deleted",
+    response_model=List[TagPublic],
+    summary="Listar tags eliminados (solo admin)",
+    description="Devuelve una lista de los tags que han sido eliminados (soft delete). Solo accesible para administradores."
+)
+async def list_deleted_tags(
+    db: sessionDep,
+    admin_user: adminDep,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, le=100),
+):
+    query = select(Tag).where(Tag.is_deleted == True)
+    query = query.offset(skip).limit(limit)
+    
+    result = await db.execute(query)
+    tags = result.scalars().all()
+    
+    return [TagPublic.model_validate(t, from_attributes=True) for t in tags]
