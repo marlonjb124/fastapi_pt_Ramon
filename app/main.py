@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI,Request
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from app.core.config import settings
+from app.core.rate_limiting import limiter, rate_limit_handler
 from app.db.services import sessionmanager
 from app.routers.user import router as router_users
 from app.routers.auth import router as router_auth
@@ -25,14 +28,16 @@ myapp = FastAPI(
     lifespan=lifespan
 )
 
-
 myapp.include_router(router_users, prefix=settings.API_V1_STR)
 myapp.include_router(router_auth, prefix=settings.API_V1_STR)
 myapp.include_router(router_posts, prefix=settings.API_V1_STR)
 myapp.include_router(router_tags, prefix=settings.API_V1_STR)
 myapp.include_router(router_admin, prefix=settings.API_V1_STR)
 myapp.include_router(router_premium, prefix=settings.API_V1_STR)
-    
+
+myapp.state.limiter = limiter
+myapp.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+myapp.add_middleware(SlowAPIMiddleware)
 @myapp.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()

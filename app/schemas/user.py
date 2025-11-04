@@ -8,11 +8,11 @@ class Role(str, Enum):
     PAID_USER = "PAID_USER"
     ADMIN = "ADMIN"
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     full_name:str
     role: Optional[Role] = Role.FREE_USER  
 class UserCreate(BaseModel):
-    email:str
+    email:EmailStr
     password: str 
     full_name:str
     
@@ -27,7 +27,7 @@ class Token(BaseModel):
     token_type: str
 
 class TokenData(BaseModel):
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     role: Optional[Role] = None
 
 class UserRoleUpdate(BaseModel):

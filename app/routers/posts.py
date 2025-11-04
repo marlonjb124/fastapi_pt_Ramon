@@ -1,8 +1,7 @@
 from typing import List, Literal, Union
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status,Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-
 from app.models.post import Post
 from app.schemas.post import (
     PostCreate,
@@ -13,6 +12,7 @@ from app.schemas.post import (
 )
 from app.schemas.user import Role
 from app.core.deps import sessionDep, currentUserDep, adminDep
+from app.core.rate_limiting import limiter
 from app.models.visibilitymixin import VisibilityMixin
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -78,13 +78,17 @@ async def list_deleted_posts(
     if load_type == "lazy":
         return [PostPublic.model_validate(p, from_attributes=True) for p in posts]
     return [PostPublicExtended.model_validate(p, from_attributes=True) for p in posts]
+
+
 @router.get(
     "/{post_id}",
     response_model=Union[PostPublic, PostPublicExtended],
     summary="Obtener post por ID",
     description="Devuelve la información de un post específico por su ID, respetando las reglas de visibilidad y permisos."
 )
+@limiter.limit("5/minute")
 async def read_post(
+    request:Request,
     post_id: int,
     db: sessionDep,
     current_user: currentUserDep,
@@ -155,7 +159,9 @@ async def search_posts(
         "Soporta paginación y distintos tipos de carga de relaciones."
     ),
 )
+@limiter.limit("5/minute")
 async def list_posts(
+    request:Request,
     db: sessionDep,
     current_user: currentUserDep,
     skip: int = Query(0, ge=0, description="Número de posts a omitir (paginación)."),
